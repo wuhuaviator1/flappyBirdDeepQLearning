@@ -16,7 +16,7 @@ from .entities import (
     WelcomeMessage,
 )
 from .utils import GameConfig, Images, Sounds, Window
-from ..DQN import Agent
+from FlapPyBird.src.DQN import Agent
 
 
 class Flappy:
@@ -37,7 +37,7 @@ class Flappy:
         )
         self.agent = Agent(
             gamma=0.99,
-            epsilon=1.0,
+            epsilson=1.0,
             lr=0.001,
             input_dims=[5],  # 假设状态向量长度为 5
             batch_size=32,
@@ -57,51 +57,48 @@ class Flappy:
             self.pipes = Pipes(self.config)
             self.score = Score(self.config)
             # await self.splash()
-            await self.play()
-            # await self.train()
+            # await self.play()
+            await self.train()
 
             # await self.game_over()
 
     async def train(self):
         for episode in range(self.num_episodes):
-            # 在每个回合开始时重置游戏
             self.reset_game()
             done = False
             score = 0
-            state = self.closest_entity()
-
+            observation = self.closest_entity()
+            print(observation)
             while not done:
-                # 选择并执行一个动作
-                action = self.select_action()
+                action = self.select_action(observation)
                 if action:  # 如果选择跳跃
                     self.player.flap()
 
-                # 获取下一个状态、奖励和是否结束
-                crossed = self.player.crossed()  # 检查是否越过水管
-                done = self.player.collided()  # 检查是否碰撞
-
-                # 计算下一个状态
+                crossed = False
+                for pipe in self.pipes.upper:
+                    if self.player.crossed(pipe):
+                        crossed = True
+                        break
                 next_state = self.closest_entity()
+                done = self.player.collided(self.pipes, self.floor)
+                # 基础奖励计算
+                reward = 10 * crossed - 100 * done
 
-                # 计算奖励
-                currentReward = 10 * crossed - 100 * done
                 # 如果小鸟在即将到来的水管的中间y轴位置，给予一些奖励
-                # ... [奖励计算逻辑]
+                if self.pipes.upper and self.pipes.lower:
+                    middle_of_pipes = (self.pipes.upper[0].rect.bottom + self.pipes.lower[0].rect.top) / 2
+                    if abs(self.player.y - middle_of_pipes) < self.pipes.pipe_gap / 4:
+                        reward += 5
 
-                # 存储转换
-                # ... [存储逻辑]
+                self.agent.store_transition(observation, action, reward, next_state, done)
+                self.agent.learn()
 
-                # 移动到下一个状态
-                state = next_state
-
-                # 执行优化步骤
-                self.optimize_model()
-
-                # 更新分数
+                observation = next_state
                 score += crossed
 
                 if done:
                     break
+
     def reset_game(self):
         # 重置游戏状态的代码
         self.background = Background(self.config)
@@ -232,8 +229,7 @@ class Flappy:
         ]
         return state
 
-    def select_action(self):
-        state = self.closest_entity()
-        state_tensor = torch.tensor([state], dtype=torch.float32).to(self.agent.Q_eval.device)
+    def select_action(self, observation):
+        state_tensor = torch.tensor(observation, dtype=torch.float32).to(self.agent.Q_eval.device)
         action = self.agent.choose_action(state_tensor)
         return action
