@@ -57,7 +57,8 @@ class Agent():
         self.mem_cntr += 1
 
     def choose_action(self, state):
-        if np.random.random() > self.epsilon:
+        if np.random.random() < self.epsilon:
+            print("random action")
             actions = self.Q_eval.forward(state)
             action = torch.argmax(actions).item()
         else:

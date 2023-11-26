@@ -38,14 +38,14 @@ class Flappy:
         )
         self.agent = Agent(
             gamma=0.99,
-            epsilson=1.0,
+            epsilson=0.5,
             lr=0.001,
-            input_dims=[4],
+            input_dims=[3],
             batch_size=32,
             n_actions=2,
             max_mem_size=100000,
-            eps_end=0.01,
-            eps_dec=5e-4
+            eps_end=0.05,
+            eps_dec=1e-4
         )
 
     async def start(self):
@@ -69,33 +69,40 @@ class Flappy:
         done = False
         observation = self.closest_entity()
         reward = 0
-        i = 0
+        flap_cooldown = 15  # 设置一个冷却时间，例如10帧
+        flap_counter = 0  # 初始化冷却计数器
         while not done:
-            if len(self.pipes.upper) > 0:
-                # print(observation)
+            action = False
+            pipe_distance = observation[2]
+            if flap_counter == 0:
                 action = self.select_action(observation)
                 if action:  # 如果选择跳跃
                     self.player.flap()
+                    flap_counter = flap_cooldown
+            else:
+                flap_counter -= 1
+            crossed = False
+            for pipe in self.pipes.upper:
+                if self.player.crossed(pipe):
+                    crossed = True
+                    self.score.add()
+                    break
+            next_state = self.closest_entity()
+            done = self.player.collided(self.pipes, self.floor)
+            reward += 100 * crossed
 
-                crossed = False
-                for pipe in self.pipes.upper:
-                    if self.player.crossed(pipe):
-                        crossed = True
-                        self.score.add()
-                        break
-                next_state = self.closest_entity()
-                done = self.player.collided(self.pipes, self.floor)
-                reward += 10 * crossed
+            if self.player.y > self.pipes.upper[0].rect.bottom or self.player.y < self.pipes.lower[0].rect.top:
+                reward -= 50/pipe_distance
+            else:
+                reward += 50/pipe_distance
 
-                middle_of_pipes = (self.pipes.upper[0].rect.bottom + self.pipes.lower[0].rect.top) / 2
-                if abs(self.player.y - middle_of_pipes) < self.pipes.pipe_gap / 4:
-                    reward += 5
-                else:
-                    reward -= 5
-                self.agent.store_transition(observation, action, reward, next_state, done)
-                self.agent.learn()
-                print(reward)
-                observation = next_state
+            death_penalty = -100 * done
+            reward += death_penalty
+            print(reward)
+            self.agent.store_transition(observation, action, reward, next_state, done)
+            self.agent.learn()
+
+            observation = next_state
 
             self.background.tick()
             self.floor.tick()
@@ -224,7 +231,7 @@ class Flappy:
             nearest_pipe_x - player.rect.x,  # Horizontal distance from the player to the nearest pipe
             # distance_to_floor,  # Distance from the player to the floor
 
-            player.vel_y  # Player's vertical velocity
+            # player.vel_y  # Player's vertical velocity
         ]
         return state
 
