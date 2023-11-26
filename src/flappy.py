@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 
 import pygame
 import torch
@@ -39,7 +40,7 @@ class Flappy:
             gamma=0.99,
             epsilson=1.0,
             lr=0.001,
-            input_dims=[5],  # 假设状态向量长度为 5
+            input_dims=[4],
             batch_size=32,
             n_actions=2,
             max_mem_size=100000,
@@ -63,13 +64,15 @@ class Flappy:
             # await self.game_over()
 
     async def train(self):
-        for episode in range(self.num_episodes):
-            self.reset_game()
-            done = False
-            score = 0
-            observation = self.closest_entity()
-            print(observation)
-            while not done:
+        self.score.reset()
+        self.player.set_mode(PlayerMode.NORMAL)
+        done = False
+        observation = self.closest_entity()
+        reward = 0
+        i = 0
+        while not done:
+            if len(self.pipes.upper) > 0:
+                # print(observation)
                 action = self.select_action(observation)
                 if action:  # 如果选择跳跃
                     self.player.flap()
@@ -78,36 +81,31 @@ class Flappy:
                 for pipe in self.pipes.upper:
                     if self.player.crossed(pipe):
                         crossed = True
+                        self.score.add()
                         break
                 next_state = self.closest_entity()
                 done = self.player.collided(self.pipes, self.floor)
-                # 基础奖励计算
-                reward = 10 * crossed - 100 * done
+                reward += 10 * crossed
 
-                # 如果小鸟在即将到来的水管的中间y轴位置，给予一些奖励
-                if self.pipes.upper and self.pipes.lower:
-                    middle_of_pipes = (self.pipes.upper[0].rect.bottom + self.pipes.lower[0].rect.top) / 2
-                    if abs(self.player.y - middle_of_pipes) < self.pipes.pipe_gap / 4:
-                        reward += 5
-
+                middle_of_pipes = (self.pipes.upper[0].rect.bottom + self.pipes.lower[0].rect.top) / 2
+                if abs(self.player.y - middle_of_pipes) < self.pipes.pipe_gap / 4:
+                    reward += 5
+                else:
+                    reward -= 5
                 self.agent.store_transition(observation, action, reward, next_state, done)
                 self.agent.learn()
-
+                print(reward)
                 observation = next_state
-                score += crossed
 
-                if done:
-                    break
+            self.background.tick()
+            self.floor.tick()
+            self.pipes.tick()
+            self.score.tick()
+            self.player.tick()
 
-    def reset_game(self):
-        # 重置游戏状态的代码
-        self.background = Background(self.config)
-        self.floor = Floor(self.config)
-        self.player = Player(self.config)
-        self.pipes = Pipes(self.config)
-        self.score = Score(self.config)
-        self.player.set_mode(PlayerMode.NORMAL)
-
+            pygame.display.update()
+            await asyncio.sleep(0)
+            self.config.tick()
     async def splash(self):
         """Shows welcome splash screen animation of flappy bird"""
 
@@ -217,14 +215,15 @@ class Flappy:
             nearest_entity_y_lower_top = nearest_lower_pipe.rect.top
 
         # Calculate the distance to the floor
-        distance_to_floor = self.config.window.height - player.rect.y - player.rect.height / 2
+        # distance_to_floor = self.config.window.height - player.rect.y - player.rect.height / 2
 
         state = [
             player.rect.y - nearest_entity_y_upper_bottom,
             # Vertical distance from the player to the nearest upper pipe
+            player.rect.y - nearest_entity_y_lower_top,  # Vertical distance from the player to the nearest lower pipe
             nearest_pipe_x - player.rect.x,  # Horizontal distance from the player to the nearest pipe
-            nearest_entity_y_lower_top - player.rect.y,  # Vertical distance from the player to the nearest lower pipe
-            distance_to_floor,  # Distance from the player to the floor
+            # distance_to_floor,  # Distance from the player to the floor
+
             player.vel_y  # Player's vertical velocity
         ]
         return state
@@ -232,4 +231,5 @@ class Flappy:
     def select_action(self, observation):
         state_tensor = torch.tensor(observation, dtype=torch.float32).to(self.agent.Q_eval.device)
         action = self.agent.choose_action(state_tensor)
+        print(state_tensor)
         return action
